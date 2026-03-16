@@ -174,6 +174,10 @@ td {
   color: #e5e7eb;
   background: #0f0f13;
 }
+.result-key {
+  width: 34%;
+  min-width: 120px;
+}
 
 .notice {
   color: #9ca3af;
@@ -224,19 +228,6 @@ canvas { display: none; }
     </div>
 
     <table>
-      <thead>
-        <tr>
-          <th>Device Model</th>
-          <th>OS Version</th>
-          <th>Browser</th>
-          <th>OS</th>
-          <th>Cores</th>
-          <th>GPU</th>
-          <th>JS Heap</th>
-          <th>ArrayBuffer</th>
-          <th>WebGL</th>
-        </tr>
-      </thead>
       <tbody id="result-body"></tbody>
     </table>
 
@@ -778,19 +769,21 @@ function buildMarkdownTable() {
 
 function renderResults() {
   const fp = state.fingerprint || collectFingerprint();
-  const cells = [
-    state.userInput.deviceModel || '-',
-    state.userInput.osVersion || '-',
-    fp.browser || '-',
-    fp.os || '-',
-    fp.cores || '-',
-    fp.gpu || '-',
-    fmtResultCell(state.heap),
-    fmtResultCell(state.ab),
-    fmtResultCell(state.gl)
+  const rows = [
+    ['Device Model', state.userInput.deviceModel || '-'],
+    ['OS Version', state.userInput.osVersion || '-'],
+    ['Browser', fp.browser || '-'],
+    ['OS', fp.os || '-'],
+    ['Cores', fp.cores || '-'],
+    ['GPU', fp.gpu || '-'],
+    ['JS Heap', fmtResultCell(state.heap)],
+    ['ArrayBuffer', fmtResultCell(state.ab)],
+    ['WebGL', fmtResultCell(state.gl)]
   ];
 
-  resultBody.innerHTML = '<tr>' + cells.map(c => '<td>' + String(c) + '</td>').join('') + '</tr>';
+  resultBody.innerHTML = rows.map(([k, v]) => (
+    '<tr><th scope="row" class="result-key">' + String(k) + '</th><td>' + String(v) + '</td></tr>'
+  )).join('');
 }
 
 function bindEvents() {
