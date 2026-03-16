@@ -255,7 +255,8 @@ const TEST_LABELS = {
   gl: 'WebGL2 GPU'
 };
 
-const BAR_MAX = 24576;
+const BAR_MAX = 32768;
+const MAX_MB = 32768;
 const STRIDE = 512;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -322,7 +323,19 @@ function fmt(mb) {
 
 function fmtResultCell(testState) {
   if (!testState || !testState.limitMB) return '-';
-  return fmt(testState.limitMB) + ' (' + (testState.how || 'unknown') + ')';
+  const howMap = {
+    cap: 'cap reached',
+    crash: 'tab crash',
+    oom_error: 'OOM exception',
+    webgl_error: 'WebGL error',
+    webgl_context_lost: 'WebGL context lost',
+    webgl_state_error: 'WebGL state error',
+    js_error: 'JS exception',
+    unsupported: 'not supported',
+    stopped: 'manually stopped'
+  };
+  const how = howMap[testState.how] || testState.how || 'unknown';
+  return fmt(testState.limitMB) + ' (' + how + ')';
 }
 
 function setRunValue(mb, cls) {
@@ -463,6 +476,15 @@ async function runHeap() {
   let checksum = 0;
 
   while (running[id]) {
+    if (totalMB + CHUNK_MB > MAX_MB) {
+      addRunLog(TEST_LABELS[id] + ': reached cap at ' + fmt(MAX_MB), 'warn');
+      setRunValue(MAX_MB, 'running');
+      setRunBar(MAX_MB, false);
+      completeCurrentTest(id, MAX_MB, 'cap');
+      running[id] = false;
+      return;
+    }
+
     try {
       const arr = new Array(CHUNK_LEN);
       const base = totalMB + 1;
@@ -505,6 +527,15 @@ async function runArrayBuffer() {
   let totalMB = state[id].mb || 0;
 
   while (running[id]) {
+    if (totalMB + CHUNK_MB > MAX_MB) {
+      addRunLog(TEST_LABELS[id] + ': reached cap at ' + fmt(MAX_MB), 'warn');
+      setRunValue(MAX_MB, 'running');
+      setRunBar(MAX_MB, false);
+      completeCurrentTest(id, MAX_MB, 'cap');
+      running[id] = false;
+      return;
+    }
+
     try {
       const buf = new ArrayBuffer(CHUNK_BYTES);
       const view = new Uint32Array(buf);
@@ -536,14 +567,35 @@ let gl = null;
 let glProg = null;
 let glTexLoc = null;
 let glFbo = null;
+let glContextLost = false;
 const glTextures = [];
 const TEX_DIM = 2048;
 const TEX_MB = (TEX_DIM * TEX_DIM * 4) / (1024 * 1024);
 let texData = null;
 const glPixel = new Uint8Array(4);
 
+function drainGLErrors() {
+  if (!gl) return 0;
+  let err = gl.NO_ERROR;
+  let last = gl.NO_ERROR;
+  let guard = 0;
+  while (guard < 32) {
+    err = gl.getError();
+    if (err === gl.NO_ERROR) return last;
+    last = err;
+    guard += 1;
+  }
+  return last;
+}
+
 function initGL() {
   const canvas = document.getElementById('gl-canvas');
+  glContextLost = false;
+  canvas.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault();
+    glContextLost = true;
+  }, { once: true });
+
   gl = canvas.getContext('webgl2', { powerPreference: 'high-performance' });
   if (!gl) return false;
 
@@ -591,6 +643,8 @@ function initGL() {
 }
 
 function allocGLTexture(index) {
+  if (!gl || glContextLost || gl.isContextLost()) return null;
+
   const tex = gl.createTexture();
   if (!tex) return null;
 
@@ -607,19 +661,29 @@ function allocGLTexture(index) {
   }
 
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, TEX_DIM, TEX_DIM, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
-  if (gl.getError() !== gl.NO_ERROR) return null;
+  if (drainGLErrors() !== gl.NO_ERROR) return null;
 
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+  if (!gl.isTexture(tex)) return null;
+  if (drainGLErrors() !== gl.NO_ERROR) return null;
+
   return tex;
 }
 
 function exerciseAllTextures() {
+  if (!gl || glContextLost || gl.isContextLost()) return false;
+
   gl.useProgram(glProg);
   gl.bindFramebuffer(gl.FRAMEBUFFER, glFbo);
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return false;
+  }
+
   gl.viewport(0, 0, 64, 64);
   gl.activeTexture(gl.TEXTURE0);
   gl.uniform1i(glTexLoc, 0);
@@ -631,7 +695,7 @@ function exerciseAllTextures() {
 
   gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, glPixel);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  return gl.getError() === gl.NO_ERROR;
+  return drainGLErrors() === gl.NO_ERROR;
 }
 
 async function runWebGL() {
@@ -663,6 +727,34 @@ async function runWebGL() {
   let totalMB = state[id].mb || 0;
 
   while (running[id]) {
+    if (glContextLost || (gl && gl.isContextLost())) {
+      addRunLog('WebGL context lost after ' + fmt(totalMB), 'err');
+      setRunValue(totalMB, 'error');
+      setRunBar(totalMB, true);
+      completeCurrentTest(id, totalMB, 'webgl_context_lost');
+      running[id] = false;
+      return;
+    }
+
+    const expectedMB = glTextures.length * TEX_MB;
+    if (expectedMB > totalMB + TEX_MB || expectedMB < Math.max(0, totalMB - TEX_MB)) {
+      addRunLog('WebGL accounting mismatch detected, aborting at ' + fmt(totalMB), 'err');
+      setRunValue(totalMB, 'error');
+      setRunBar(totalMB, true);
+      completeCurrentTest(id, totalMB, 'webgl_state_error');
+      running[id] = false;
+      return;
+    }
+
+    if (totalMB + TEX_MB > MAX_MB) {
+      addRunLog(TEST_LABELS[id] + ': reached cap at ' + fmt(MAX_MB), 'warn');
+      setRunValue(MAX_MB, 'running');
+      setRunBar(MAX_MB, false);
+      completeCurrentTest(id, MAX_MB, 'cap');
+      running[id] = false;
+      return;
+    }
+
     const tex = allocGLTexture(glTextures.length);
     if (!tex) {
       addRunLog('WebGL error after ' + fmt(totalMB), 'err');
