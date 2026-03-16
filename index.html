@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory Limit Tester</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f0f13;
+  color: #e0e0e0;
+  min-height: 100vh;
+  padding: 24px 16px;
+}
+h1 {
+  text-align: center;
+  font-size: 1.4rem;
+  color: #fff;
+  margin-bottom: 6px;
+}
+.subtitle {
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.85rem;
+  margin-bottom: 22px;
+}
+.container {
+  width: min(920px, 100%);
+  margin: 0 auto;
+}
+.panel {
+  background: #16161e;
+  border: 1px solid #252530;
+  border-radius: 12px;
+  padding: 18px;
+}
+.hidden { display: none; }
+
+.lead {
+  color: #9ca3af;
+  line-height: 1.5;
+  margin-bottom: 14px;
+  font-size: 0.92rem;
+}
+
+.meta-line {
+  color: #9ca3af;
+  font-size: 0.78rem;
+  margin-bottom: 10px;
+}
+
+.stat-box {
+  background: #0f0f13;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.stat-label {
+  font-size: 0.68rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.stat-value {
+  font-size: 1.25rem;
+  font-family: monospace;
+  color: #d1d5db;
+}
+.stat-value.running { color: #4ade80; }
+.stat-value.error { color: #f87171; }
+
+.progress-track {
+  background: #0f0f13;
+  border-radius: 3px;
+  height: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.progress-fill {
+  height: 100%;
+  background: #4ade80;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+.progress-fill.error { background: #f87171; }
+
+.log {
+  background: #0f0f13;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: #6b7280;
+  height: 190px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+}
+.log-entry { margin-bottom: 2px; }
+.log-entry.ok { color: #4ade80; }
+.log-entry.warn { color: #fbbf24; }
+.log-entry.err { color: #f87171; }
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+#start-screen .btn-row {
+  justify-content: center;
+}
+button {
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: opacity 0.15s;
+  padding: 10px 14px;
+}
+button:hover { opacity: 0.85; }
+.btn-run { background: #4ade80; color: #000; }
+.btn-copy { background: #60a5fa; color: #000; }
+.btn-reset { background: #1e1e28; color: #d1d5db; border: 1px solid #252530; }
+
+.progress-summary {
+  margin-bottom: 10px;
+  color: #9ca3af;
+  font-size: 0.84rem;
+}
+
+.input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  display: block;
+  margin-bottom: 5px;
+}
+input {
+  width: 100%;
+  background: #0f0f13;
+  border: 1px solid #252530;
+  color: #e0e0e0;
+  border-radius: 7px;
+  padding: 9px 10px;
+  font-size: 0.84rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 14px;
+  font-size: 0.78rem;
+}
+th, td {
+  border: 1px solid #252530;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  color: #9ca3af;
+  background: #12121a;
+}
+td {
+  color: #e5e7eb;
+  background: #0f0f13;
+}
+
+.notice {
+  color: #9ca3af;
+  font-size: 0.75rem;
+  margin-bottom: 12px;
+}
+
+canvas { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Memory Limit Tester</h1>
+<p class="subtitle">Sequential memory stress tests with crash-aware resume and one-row export.</p>
+
+<div class="container">
+  <section class="panel" id="start-screen">
+    <p class="lead">This runs 3 tests in order: JS Heap, ArrayBuffer, and WebGL GPU memory. You only click once. If a test crashes the tab, open the page again and it will continue with the next test automatically.</p>
+    <div class="btn-row">
+      <button class="btn-run" id="start-btn">Start Testing</button>
+    </div>
+  </section>
+
+  <section class="panel hidden" id="run-screen">
+    <div class="progress-summary" id="run-step"></div>
+    <div class="meta-line" id="run-current"></div>
+    <div class="stat-box">
+      <div class="stat-label">Allocated</div>
+      <div class="stat-value" id="run-value">-</div>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="run-bar"></div></div>
+    <div class="log" id="run-log"></div>
+    <div class="notice">Keep this tab open while running. Crashes/reloads are expected and are used as the completion signal.</div>
+  </section>
+
+  <section class="panel hidden" id="result-screen">
+    <p class="lead">Tests are complete. Fill in the two fields below, then copy the markdown row.</p>
+
+    <div class="input-grid">
+      <div>
+        <label for="device-model">Device model (example: iPhone 15)</label>
+        <input id="device-model" placeholder="iPhone 15">
+      </div>
+      <div>
+        <label for="os-version">OS version (example: 26)</label>
+        <input id="os-version" placeholder="26">
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Device Model</th>
+          <th>OS Version</th>
+          <th>Browser</th>
+          <th>OS</th>
+          <th>Cores</th>
+          <th>GPU</th>
+          <th>JS Heap</th>
+          <th>ArrayBuffer</th>
+          <th>WebGL</th>
+        </tr>
+      </thead>
+      <tbody id="result-body"></tbody>
+    </table>
+
+    <div class="btn-row">
+      <button class="btn-copy" id="copy-btn">Copy Markdown Row</button>
+      <button class="btn-reset" id="reset-btn">Start Over</button>
+    </div>
+  </section>
+</div>
+
+<canvas id="gl-canvas" width="64" height="64"></canvas>
+
+<script>
+'use strict';
+
+const STORE = 'memtest_v2';
+const TEST_ORDER = ['heap', 'ab', 'gl'];
+const TEST_LABELS = {
+  heap: 'JS Heap',
+  ab: 'ArrayBuffer',
+  gl: 'WebGL2 GPU'
+};
+
+const BAR_MAX = 24576;
+const STRIDE = 512;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+let state = loadState();
+let testInProgress = false;
+const running = { heap: false, ab: false, gl: false };
+
+const startScreen = document.getElementById('start-screen');
+const runScreen = document.getElementById('run-screen');
+const resultScreen = document.getElementById('result-screen');
+const runStepEl = document.getElementById('run-step');
+const runCurrentEl = document.getElementById('run-current');
+const runValueEl = document.getElementById('run-value');
+const runBarEl = document.getElementById('run-bar');
+const runLogEl = document.getElementById('run-log');
+const deviceInput = document.getElementById('device-model');
+const osVersionInput = document.getElementById('os-version');
+const resultBody = document.getElementById('result-body');
+
+function loadState() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveState() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(state));
+  } catch {}
+}
+
+function ensureStateShape() {
+  state.flow = state.flow || { started: false, currentIndex: 0, finished: false, activeTest: null };
+  state.userInput = state.userInput || { deviceModel: '', osVersion: '' };
+  state.fingerprint = state.fingerprint || null;
+
+  for (const id of TEST_ORDER) {
+    if (!state[id]) state[id] = { status: 'idle', mb: 0, limitMB: 0, how: '' };
+  }
+}
+
+function resetAllState() {
+  state = {
+    flow: { started: false, currentIndex: 0, finished: false, activeTest: null },
+    userInput: { deviceModel: '', osVersion: '' },
+    fingerprint: null,
+    heap: { status: 'idle', mb: 0, limitMB: 0, how: '' },
+    ab: { status: 'idle', mb: 0, limitMB: 0, how: '' },
+    gl: { status: 'idle', mb: 0, limitMB: 0, how: '' }
+  };
+  saveState();
+}
+
+function ts() {
+  return new Date().toTimeString().slice(0, 8);
+}
+
+function fmt(mb) {
+  if (mb == null) return '-';
+  return mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : mb.toFixed(0) + ' MB';
+}
+
+function fmtResultCell(testState) {
+  if (!testState || !testState.limitMB) return '-';
+  return fmt(testState.limitMB) + ' (' + (testState.how || 'unknown') + ')';
+}
+
+function setRunValue(mb, cls) {
+  runValueEl.textContent = fmt(mb);
+  runValueEl.className = 'stat-value ' + (cls || '');
+}
+
+function setRunBar(mb, errored) {
+  runBarEl.style.width = Math.min(100, (mb / BAR_MAX) * 100) + '%';
+  runBarEl.className = 'progress-fill' + (errored ? ' error' : '');
+}
+
+function addRunLog(message, cls) {
+  const div = document.createElement('div');
+  div.className = 'log-entry ' + (cls || '');
+  div.textContent = ts() + '  ' + message;
+  runLogEl.appendChild(div);
+  runLogEl.scrollTop = runLogEl.scrollHeight;
+}
+
+function showScreen(which) {
+  startScreen.classList.toggle('hidden', which !== 'start');
+  runScreen.classList.toggle('hidden', which !== 'run');
+  resultScreen.classList.toggle('hidden', which !== 'result');
+}
+
+function detectCrashAndAdvance() {
+  if (!state.flow.started || state.flow.finished) return;
+  const active = state.flow.activeTest;
+  if (!active) return;
+  const s = state[active];
+  if (s && s.status === 'running') {
+    const crashMB = s.mb || 0;
+    state[active] = { status: 'done', limitMB: crashMB, mb: crashMB, how: 'crash' };
+    const idx = TEST_ORDER.indexOf(active);
+    if (idx >= 0) state.flow.currentIndex = idx + 1;
+    state.flow.activeTest = null;
+    saveState();
+  }
+}
+
+function updateRunHeader() {
+  const index = state.flow.currentIndex;
+  const testId = TEST_ORDER[index];
+  const name = TEST_LABELS[testId] || 'Unknown Test';
+  runStepEl.textContent = 'Step ' + (index + 1) + ' of ' + TEST_ORDER.length;
+  runCurrentEl.textContent = 'Current test: ' + name;
+}
+
+function completeCurrentTest(id, limitMB, how) {
+  state[id] = { status: 'done', limitMB, mb: limitMB, how };
+  state.flow.activeTest = null;
+  const idx = TEST_ORDER.indexOf(id);
+  state.flow.currentIndex = idx + 1;
+  saveState();
+}
+
+function finishFlow() {
+  state.flow.finished = true;
+  state.flow.activeTest = null;
+  state.fingerprint = collectFingerprint();
+  saveState();
+  renderResults();
+  showScreen('result');
+}
+
+function startFlowFromScratch() {
+  resetAllState();
+  state.flow.started = true;
+  saveState();
+  runLogEl.innerHTML = '';
+  setRunValue(null, '');
+  setRunBar(0, false);
+  showScreen('run');
+  runSequence();
+}
+
+async function runSequence() {
+  if (testInProgress) return;
+  if (!state.flow.started || state.flow.finished) return;
+
+  testInProgress = true;
+  showScreen('run');
+
+  while (state.flow.currentIndex < TEST_ORDER.length) {
+    updateRunHeader();
+    const id = TEST_ORDER[state.flow.currentIndex];
+
+    if (state[id] && state[id].status === 'done') {
+      state.flow.currentIndex += 1;
+      saveState();
+      continue;
+    }
+
+    addRunLog('Starting ' + TEST_LABELS[id], 'warn');
+    state.flow.activeTest = id;
+    state[id] = { status: 'running', mb: 0, limitMB: 0, how: '' };
+    saveState();
+
+    if (id === 'heap') await runHeap();
+    if (id === 'ab') await runArrayBuffer();
+    if (id === 'gl') await runWebGL();
+
+    if (!state.flow.finished) {
+      addRunLog('Completed ' + TEST_LABELS[id] + ' at ' + fmt(state[id].limitMB), 'ok');
+      await sleep(180);
+    }
+  }
+
+  if (!state.flow.finished) finishFlow();
+  testInProgress = false;
+}
+
+function exerciseF64(arr) {
+  const len = arr.length;
+  for (let i = 0; i < len; i += STRIDE) arr[i] = i * 1.0000001;
+  let s = 0.0;
+  for (let i = 0; i < len; i += STRIDE) s += arr[i];
+  return s;
+}
+
+function exerciseU32(arr) {
+  const len = arr.length;
+  for (let i = 0; i < len; i += STRIDE) arr[i] = (i * 2654435761) >>> 0;
+  let s = 0;
+  for (let i = 0; i < len; i += STRIDE) s += arr[i];
+  return s;
+}
+
+async function runHeap() {
+  const id = 'heap';
+  running[id] = true;
+
+  const CHUNK_MB = 50;
+  const CHUNK_LEN = (CHUNK_MB * 1024 * 1024) / 8;
+  const chunks = [];
+  let totalMB = state[id].mb || 0;
+  let checksum = 0;
+
+  while (running[id]) {
+    try {
+      const arr = new Array(CHUNK_LEN);
+      const base = totalMB + 1;
+      for (let i = 0; i < CHUNK_LEN; i++) {
+        arr[i] = base + (i * 0.6180339887498949);
+      }
+
+      checksum += exerciseF64(arr);
+      if (checksum !== checksum) chunks.length = 0;
+
+      chunks.push(arr);
+      totalMB += CHUNK_MB;
+
+      state[id] = { status: 'running', mb: totalMB, limitMB: 0, how: '' };
+      saveState();
+
+      setRunValue(totalMB, 'running');
+      setRunBar(totalMB, false);
+      addRunLog(TEST_LABELS[id] + ': +' + CHUNK_MB + ' MB -> ' + fmt(totalMB), 'ok');
+
+      await sleep(30);
+    } catch (e) {
+      addRunLog(TEST_LABELS[id] + ': OOM at ' + fmt(totalMB) + ' (' + e.message + ')', 'err');
+      setRunValue(totalMB, 'error');
+      setRunBar(totalMB, true);
+      completeCurrentTest(id, totalMB, 'oom_error');
+      running[id] = false;
+      return;
+    }
+  }
+}
+
+async function runArrayBuffer() {
+  const id = 'ab';
+  running[id] = true;
+
+  const CHUNK_MB = 50;
+  const CHUNK_BYTES = CHUNK_MB * 1024 * 1024;
+  const buffers = [];
+  let totalMB = state[id].mb || 0;
+
+  while (running[id]) {
+    try {
+      const buf = new ArrayBuffer(CHUNK_BYTES);
+      const view = new Uint32Array(buf);
+      exerciseU32(view);
+
+      buffers.push(buf);
+      totalMB += CHUNK_MB;
+
+      state[id] = { status: 'running', mb: totalMB, limitMB: 0, how: '' };
+      saveState();
+
+      setRunValue(totalMB, 'running');
+      setRunBar(totalMB, false);
+      addRunLog(TEST_LABELS[id] + ': +' + CHUNK_MB + ' MB -> ' + fmt(totalMB), 'ok');
+
+      await sleep(30);
+    } catch (e) {
+      addRunLog(TEST_LABELS[id] + ': OOM at ' + fmt(totalMB) + ' (' + e.message + ')', 'err');
+      setRunValue(totalMB, 'error');
+      setRunBar(totalMB, true);
+      completeCurrentTest(id, totalMB, 'oom_error');
+      running[id] = false;
+      return;
+    }
+  }
+}
+
+let gl = null;
+let glProg = null;
+let glTexLoc = null;
+let glFbo = null;
+const glTextures = [];
+const TEX_DIM = 2048;
+const TEX_MB = (TEX_DIM * TEX_DIM * 4) / (1024 * 1024);
+let texData = null;
+const glPixel = new Uint8Array(4);
+
+function initGL() {
+  const canvas = document.getElementById('gl-canvas');
+  gl = canvas.getContext('webgl2', { powerPreference: 'high-performance' });
+  if (!gl) return false;
+
+  const vs = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs, '#version 300 es\nin vec2 a_pos;\nout vec2 v_uv;\nvoid main(){v_uv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0.0,1.0);}');
+  gl.compileShader(vs);
+
+  const fs = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs, '#version 300 es\nprecision mediump float;\nuniform sampler2D u_tex;\nin vec2 v_uv;\nout vec4 color;\nvoid main(){color=texture(u_tex,v_uv);}');
+  gl.compileShader(fs);
+
+  glProg = gl.createProgram();
+  gl.attachShader(glProg, vs);
+  gl.attachShader(glProg, fs);
+  gl.linkProgram(glProg);
+
+  if (!gl.getProgramParameter(glProg, gl.LINK_STATUS)) {
+    addRunLog('WebGL2 shader link failed: ' + gl.getProgramInfoLog(glProg), 'err');
+    return false;
+  }
+
+  const quad = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+
+  const loc = gl.getAttribLocation(glProg, 'a_pos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  glTexLoc = gl.getUniformLocation(glProg, 'u_tex');
+
+  glFbo = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, glFbo);
+  const rb = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, 64, 64);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rb);
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+    addRunLog('WebGL2 FBO setup failed', 'err');
+    return false;
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return true;
+}
+
+function allocGLTexture(index) {
+  const tex = gl.createTexture();
+  if (!tex) return null;
+
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  const pixels = texData.length / 4;
+  const base = (index * 2654435761) >>> 0;
+
+  for (let p = 0; p < pixels; p++) {
+    const v = (base ^ (p * 40503)) >>> 0;
+    texData[p * 4] = v & 0xff;
+    texData[p * 4 + 1] = (v >> 8) & 0xff;
+    texData[p * 4 + 2] = (v >> 16) & 0xff;
+    texData[p * 4 + 3] = 0xff;
+  }
+
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, TEX_DIM, TEX_DIM, 0, gl.RGBA, gl.UNSIGNED_BYTE, texData);
+  if (gl.getError() !== gl.NO_ERROR) return null;
+
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  return tex;
+}
+
+function exerciseAllTextures() {
+  gl.useProgram(glProg);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, glFbo);
+  gl.viewport(0, 0, 64, 64);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1i(glTexLoc, 0);
+
+  for (let i = 0; i < glTextures.length; i++) {
+    gl.bindTexture(gl.TEXTURE_2D, glTextures[i]);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, glPixel);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return gl.getError() === gl.NO_ERROR;
+}
+
+async function runWebGL() {
+  const id = 'gl';
+  running[id] = true;
+
+  if (!gl && !initGL()) {
+    addRunLog('WebGL2 unavailable on this device', 'err');
+    setRunValue(0, 'error');
+    setRunBar(0, true);
+    completeCurrentTest(id, 0, 'unsupported');
+    running[id] = false;
+    return;
+  }
+
+  if (!texData) {
+    try {
+      texData = new Uint8Array(TEX_DIM * TEX_DIM * 4);
+    } catch (e) {
+      addRunLog('Could not allocate WebGL upload buffer: ' + e.message, 'err');
+      setRunValue(0, 'error');
+      setRunBar(0, true);
+      completeCurrentTest(id, 0, 'js_error');
+      running[id] = false;
+      return;
+    }
+  }
+
+  let totalMB = state[id].mb || 0;
+
+  while (running[id]) {
+    const tex = allocGLTexture(glTextures.length);
+    if (!tex) {
+      addRunLog('WebGL error after ' + fmt(totalMB), 'err');
+      setRunValue(totalMB, 'error');
+      setRunBar(totalMB, true);
+      completeCurrentTest(id, totalMB, 'webgl_error');
+      running[id] = false;
+      return;
+    }
+
+    glTextures.push(tex);
+
+    const ok = exerciseAllTextures();
+    if (!ok) {
+      addRunLog('WebGL draw/readback failure after ' + fmt(totalMB), 'err');
+      setRunValue(totalMB, 'error');
+      setRunBar(totalMB, true);
+      completeCurrentTest(id, totalMB, 'webgl_error');
+      running[id] = false;
+      return;
+    }
+
+    totalMB += TEX_MB;
+    state[id] = { status: 'running', mb: totalMB, limitMB: 0, how: '' };
+    saveState();
+
+    setRunValue(totalMB, 'running');
+    setRunBar(totalMB, false);
+    addRunLog(TEST_LABELS[id] + ': +' + TEX_MB + ' MB -> ' + fmt(totalMB), 'ok');
+
+    await sleep(30);
+  }
+}
+
+function detectBrowserName() {
+  if (navigator.userAgentData && Array.isArray(navigator.userAgentData.brands) && navigator.userAgentData.brands.length) {
+    return navigator.userAgentData.brands.map(b => b.brand + ' ' + b.version).join(', ');
+  }
+
+  const ua = navigator.userAgent;
+  if (/Edg\//.test(ua)) return 'Microsoft Edge';
+  if (/OPR\//.test(ua)) return 'Opera';
+  if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) return 'Chrome';
+  if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) return 'Safari';
+  if (/Firefox\//.test(ua)) return 'Firefox';
+  return 'Unknown';
+}
+
+function detectOSName() {
+  const ua = navigator.userAgent;
+  if (/Windows NT/.test(ua)) return 'Windows';
+  if (/Android/.test(ua)) return 'Android';
+  if (/iPhone|iPad|iPod/.test(ua)) return 'iOS';
+  if (/Mac OS X/.test(ua)) return 'macOS';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Unknown';
+}
+
+function detectGPUInfo() {
+  try {
+    const canvas = document.createElement('canvas');
+    const glx = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (!glx) return 'Unavailable';
+
+    const ext = glx.getExtension('WEBGL_debug_renderer_info');
+    if (!ext) return 'Restricted';
+
+    const vendor = glx.getParameter(ext.UNMASKED_VENDOR_WEBGL) || 'Unknown vendor';
+    const renderer = glx.getParameter(ext.UNMASKED_RENDERER_WEBGL) || 'Unknown renderer';
+    return vendor + ' / ' + renderer;
+  } catch {
+    return 'Unavailable';
+  }
+}
+
+function collectFingerprint() {
+  return {
+    cores: navigator.hardwareConcurrency || 'Unknown',
+    browser: detectBrowserName(),
+    os: detectOSName(),
+    gpu: detectGPUInfo()
+  };
+}
+
+function escMd(value) {
+  return String(value == null ? '' : value).replace(/\|/g, '\\|');
+}
+
+function buildMarkdownTable() {
+  const fp = state.fingerprint || collectFingerprint();
+  const row = [
+    state.userInput.deviceModel || '',
+    state.userInput.osVersion || '',
+    fp.browser || '',
+    fp.os || '',
+    fp.cores || '',
+    fp.gpu || '',
+    fmtResultCell(state.heap),
+    fmtResultCell(state.ab),
+    fmtResultCell(state.gl)
+  ].map(escMd);
+
+  const head = '| Device Model | OS Version | Browser | OS | Cores | GPU | JS Heap | ArrayBuffer | WebGL |';
+  const sep = '|---|---|---|---|---|---|---|---|---|';
+  const body = '| ' + row.join(' | ') + ' |';
+  return head + '\n' + sep + '\n' + body;
+}
+
+function renderResults() {
+  const fp = state.fingerprint || collectFingerprint();
+  const cells = [
+    state.userInput.deviceModel || '-',
+    state.userInput.osVersion || '-',
+    fp.browser || '-',
+    fp.os || '-',
+    fp.cores || '-',
+    fp.gpu || '-',
+    fmtResultCell(state.heap),
+    fmtResultCell(state.ab),
+    fmtResultCell(state.gl)
+  ];
+
+  resultBody.innerHTML = '<tr>' + cells.map(c => '<td>' + String(c) + '</td>').join('') + '</tr>';
+}
+
+function bindEvents() {
+  document.getElementById('start-btn').addEventListener('click', () => {
+    startFlowFromScratch();
+  });
+
+  document.getElementById('copy-btn').addEventListener('click', async () => {
+    const md = buildMarkdownTable();
+    try {
+      await navigator.clipboard.writeText(md);
+      alert('Markdown table copied to clipboard.');
+    } catch {
+      alert('Clipboard write failed.');
+    }
+  });
+
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    resetAllState();
+    runLogEl.innerHTML = '';
+    setRunValue(null, '');
+    setRunBar(0, false);
+    deviceInput.value = '';
+    osVersionInput.value = '';
+    showScreen('start');
+  });
+
+  deviceInput.addEventListener('input', () => {
+    state.userInput.deviceModel = deviceInput.value.trim();
+    saveState();
+    renderResults();
+  });
+
+  osVersionInput.addEventListener('input', () => {
+    state.userInput.osVersion = osVersionInput.value.trim();
+    saveState();
+    renderResults();
+  });
+}
+
+function init() {
+  ensureStateShape();
+  bindEvents();
+  detectCrashAndAdvance();
+
+  if (!state.flow.started) {
+    showScreen('start');
+    saveState();
+    return;
+  }
+
+  if (state.flow.finished) {
+    showScreen('result');
+    deviceInput.value = state.userInput.deviceModel || '';
+    osVersionInput.value = state.userInput.osVersion || '';
+    renderResults();
+    return;
+  }
+
+  showScreen('run');
+  updateRunHeader();
+
+  const active = state.flow.activeTest;
+  if (active && state[active] && state[active].status === 'running') {
+    addRunLog('Recovered running state for ' + TEST_LABELS[active], 'warn');
+    setRunValue(state[active].mb || 0, 'running');
+    setRunBar(state[active].mb || 0, false);
+  }
+
+  if (state.flow.currentIndex >= TEST_ORDER.length) {
+    finishFlow();
+    return;
+  }
+
+  runSequence();
+}
+
+init();
+</script>
+</body>
+</html>
